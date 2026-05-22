@@ -502,7 +502,7 @@ def gripper_Behave(real_points):
         send.gripper_ON(c)
         send.Go_Position(c, target_x, target_y, home[2], home[3], home[4], -133.567, 50)
         send.Go_Position(c, drop[0], drop[1], drop[2], home[3], home[4], home[5], 50)
-        send.Go_Position(c, drop[0], drop[1], z_height, home[3], home[4], home[5], 50)
+        send.Go_Position(c, drop[0], drop[1], drop[2]-30, home[3], home[4], home[5], 50)
         send.gripper_OFF(c)
         send.Go_Position(c, drop[0], drop[1], drop[2], home[3], home[4], home[5], 50)
         send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 50)
@@ -550,7 +550,7 @@ print("🟢 手臂連線成功！")
 
 gripper_rz = -133.567
 home = [386.077, -51.439, 680,  -179.161, -0.32, -102.22800000000001]
-drop = [532.1080000000001, -229.305, z_height+60, -179.161, -0.32, -133.608]
+drop = [532.1080000000001, -229.305, z_height+40, -179.161, -0.32, -133.608]
 
 # =====================================================================
 # 🏃 程式執行進入點

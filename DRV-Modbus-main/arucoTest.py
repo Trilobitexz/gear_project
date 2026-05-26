@@ -400,7 +400,6 @@ def Find_Gear_Object():
                     continue 
                 
                 filtered_centers.append((cx, cy))
-                target_idx = len(filtered_centers)
 
                 final_box_x1 = int(cx - radius)
                 final_box_y1 = int(cy - radius)
@@ -413,7 +412,6 @@ def Find_Gear_Object():
                 cv2.line(output, (cx - 20, cy), (cx + 20, cy), (0, 0, 255), 2)
                 cv2.line(output, (cx, cy - 20), (cx, cy + 20), (0, 0, 255), 2)
                 cv2.circle(output, (cx, cy), 4, (0, 255, 255), -1)            
-                cv2.putText(output, f"#{target_idx}", (cx + 18, cy + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
                 
                 final_x = cy + o_point[1]
                 final_y = cx + o_point[0]
@@ -432,10 +430,16 @@ def Find_Gear_Object():
         return output, real_points     
     return [], []
 
-def gripper_Behave(real_points, task_idx):
-    global picked_gear_total
+TARGET_TEETH = 20
+TARGET_PICK_COUNT = 2
+
+def gripper_Behave(real_points, task_idx, target_pick_count=TARGET_PICK_COUNT):
+    picked_count = 0
 
     for idx, pt in enumerate(real_points):
+        if picked_count >= target_pick_count:
+            break
+
         target_x = pt[0]
         target_y = pt[1]
         
@@ -463,7 +467,6 @@ def gripper_Behave(real_points, task_idx):
         check_frame = cv2.cvtColor(check_frame, cv2.COLOR_RGB2BGR)
         print("📸 拍攝近景完成，正在進行 FFT 與幾何分析...")
         results = seg_model.predict(source=check_frame, conf=0.35, verbose=False)
-        teeth = 0
         
         if len(results) > 0 and results[0].masks is not None:
             img_h, img_w = check_frame.shape[:2]
@@ -531,6 +534,10 @@ def gripper_Behave(real_points, task_idx):
 
             print(f"⚙️ 鎖定目標 -> 幾何齒數: {teeth} | FFT 齒數: {fft_teeth}")
 
+            if teeth != TARGET_TEETH:
+                print(f"⚠️ 齒數 {teeth} 不等於 {TARGET_TEETH}，跳過夾取")
+                continue
+
             dashboard = np.zeros((1000, 1600, 3), dtype=np.uint8)
             
             if unwrapped_img is not None:
@@ -565,32 +572,22 @@ def gripper_Behave(real_points, task_idx):
         else:
             print("⚠️ 未檢測到齒輪遮罩，無法進行進階計算")
 
-        if teeth != 20:
-            print(f"⏭️ 第 {idx+1} 個目標齒數為 {teeth}，不是 20 齒，跳過夾取。")
-            continue
-
         print(f"🦾 準備夾取第 {idx+1} 個目標...")
-        drop_target = drop if picked_gear_total == 0 else drop_second
         send.Go_Position(c, target_x, target_y, z_height_check_number_of_teeth, home[3], home[4], -133.567, 80)
         send.Go_Position(c, target_x, target_y, z_height, home[3], home[4], -133.567, 80)
         send.gripper_ON(c)
         send.Go_Position(c, target_x, target_y, home[2], home[3], home[4], -133.567, 80)
-        send.Go_Position(c, drop_target[0], drop_target[1], drop_target[2],  drop_target[3], drop_target[4], drop_target[5], 80)
-        send.Go_Position(c, drop_target[0], drop_target[1], drop_target[2]-35,  drop_target[3], drop_target[4], drop_target[5], 80)
+        send.Go_Position(c, drop[0], drop[1], drop[2],  drop[3], drop[4], drop[5], 80)
+        send.Go_Position(c, drop[0], drop[1], drop[2]-35,  drop[3], drop[4], drop[5], 80)
         send.gripper_OFF(c)
-        send.Go_Position(c, drop_target[0], drop_target[1], drop_target[2],  -179.145, -0.321, -133.959, 80)
+        send.Go_Position(c, drop[0], drop[1], drop[2],  -179.145, -0.321, -133.959, 80)
         send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 80)
 
-        picked_gear_total += 1
-        print(f"✅ 已累積夾取 {picked_gear_total} 個 20 齒齒輪。")
-        if picked_gear_total >= 2:
-            print("🏁 已完成兩個齒輪夾取，程式結束。")
-            return
+        picked_count += 1
+
+    return picked_count
 
 def main(task_idx):
-    if picked_gear_total >= 2:
-        return
-
     send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 80)
     send.gripper_OFF(c)
     
@@ -608,12 +605,23 @@ def main(task_idx):
         print("❌ 錯誤：相機完全沒有畫面！請檢查 USB 連線並重新插拔相機。")
         return 
     
-    real_points = []
-    
+    picked_total = 0
+    output = None
+
     print(f"🚀 開始執行任務 {task_idx}：搜尋高處目標...")
-    while len(real_points) == 0:
-        output, real_points = Find_Gear_Object()
-        cv2.waitKey(1)
+    while picked_total < TARGET_PICK_COUNT:
+        real_points = []
+        while len(real_points) == 0:
+            output, real_points = Find_Gear_Object()
+            cv2.waitKey(1)
+
+        picked_now = gripper_Behave(real_points, task_idx, TARGET_PICK_COUNT - picked_total)
+        picked_total += picked_now
+
+        if picked_total < TARGET_PICK_COUNT:
+            print(f"🔁 已夾取 {picked_total} 個目標，繼續搜尋剩餘 {TARGET_PICK_COUNT - picked_total} 個...")
+        else:
+            break
         
     try:
         cv2.destroyWindow("Step 1: High View Lock (Live)")
@@ -626,8 +634,7 @@ def main(task_idx):
     print(f"🎯 高處尋找完畢，共找到 {len(real_points)} 個目標座標！")
     cv2.waitKey(1000)
     
-    gripper_Behave(real_points, task_idx)
-    print(f"✅ 任務 {task_idx} 搜尋清空完畢!!!")
+    print(f"✅ 任務 {task_idx} 已成功夾取 {picked_total} 個目標齒輪!!!")
 
 # =====================================================================
 # 🔧 常數與連線設定區
@@ -654,18 +661,11 @@ print("🟢 手臂連線成功！")
 gripper_rz = -133.567
 home = [386.077, -51.439, 680,  -179.161, -0.32, -102.22800000000001]
 drop = [474.953, -228.878, z_height+50, -178.932, 0.478, -134.746]
-picked_gear_total = 0
-drop_second = [drop[0] + 54, drop[1], drop[2], drop[3], drop[4], drop[5]]
 
 if __name__ == "__main__":
     try:
         for i in range(3): 
             main(task_idx=i+1) 
-            if picked_gear_total >= 2:
-                break
-
-        if picked_gear_total >= 2:
-            raise SystemExit
             
         print("\n" + "="*50)
         print("🏁 所有任務已順利完成！")

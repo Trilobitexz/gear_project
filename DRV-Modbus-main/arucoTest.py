@@ -7,10 +7,10 @@ from ultralytics import YOLO
 import numpy as np
 import cv2
 import time
-import math  # 導入 math 模組以供面積、半徑等幾何運算使用
+import math  
 
 # =====================================================================
-# 🚀 雙 YOLO 模型載入區 (雙專家大腦就緒！)
+# 🚀 雙 YOLO 模型載入區 
 # =====================================================================
 print("正在載入 YOLO 偵測模型 (用於高處定位)...")
 detect_model = YOLO(r"C:\我的\大學\大二下\自主專題_智慧機器人_機器人感測與周邊整合\gear.v1i.yolov11\runs\detect\yolov11_results\gear_experiment\weights\best.pt") 
@@ -24,10 +24,6 @@ print("🎉 雙模型載入完成！")
 # 🖥️ 智慧視窗顯示引擎 (保證視窗不爆框)
 # =====================================================================
 def show_smart_window(title, image, max_width=1400, max_height=800):
-    """
-    智慧調整視窗大小：如果影像大於設定的螢幕最大範圍，就等比例縮小，
-    確保在任何筆電或螢幕上都能完整顯示。
-    """
     if image is None or image.size == 0:
         return
         
@@ -255,7 +251,6 @@ def count_teeth_from_mask(mask_array: np.ndarray, annotated_img: np.ndarray):
         if angle_deg < 0:
             angle_deg += 360.0 
         valleys_with_angles.append((v, angle_deg))
-        
         cv2.line(annotated_img, (center_x, center_y), tuple(v), (255, 180, 0), 4) 
         cv2.circle(annotated_img, tuple(v), 12, (0, 0, 255), -1)                  
 
@@ -265,7 +260,6 @@ def count_teeth_from_mask(mask_array: np.ndarray, annotated_img: np.ndarray):
         valleys_with_angles.sort(key=lambda x: x[1]) 
         v_min = valleys_with_angles[0][0]  
         v_max = valleys_with_angles[-1][0] 
-        
         cv2.line(annotated_img, (center_x, center_y), tuple(v_min), (0, 255, 0), 10) 
         cv2.line(annotated_img, (center_x, center_y), tuple(v_max), (0, 255, 0), 10) 
         
@@ -293,12 +287,11 @@ def Warp(frame, c_center_list, width, height):
     return output, m
 
 # =====================================================================
-# 🤖 機器手臂與核心視覺流程
+# 🤖 機器手臂與視覺核心流程
 # =====================================================================
 
 def Find_Gear_Object():
     frame = realsense.Get_RGB_Frame()
-    
     if frame is None or not isinstance(frame, np.ndarray):
         print("⚠️ 警告：無法從相機取得畫面 (高處定位)")
         return [], []
@@ -311,9 +304,7 @@ def Find_Gear_Object():
                                                                                                     aruco_length, 
                                                                                                     aruco_5x5_100_id.aruco_dict, 
                                                                                                     aruco_5x5_100_id.aruco_params)
-    
     if len(id_result) < 4:
-        # 即時搜尋中：套用智慧視窗
         show_smart_window("Step 1: High View Lock (Live)", frame) 
         return [], []
 
@@ -363,16 +354,12 @@ def Find_Gear_Object():
                 
                 if contours:
                     c = max(contours, key=cv2.contourArea)
-                    
                     area = cv2.contourArea(c)
                     perimeter = cv2.arcLength(c, True)
                     
-                    if perimeter == 0 or area < 100: 
-                        continue
-                        
+                    if perimeter == 0 or area < 100: continue
                     circularity = 4 * math.pi * (area / (perimeter * perimeter))
-                    if circularity < 0.5:
-                        continue 
+                    if circularity < 0.5: continue 
                     
                     M = cv2.moments(c)
                     if M["m00"] != 0:
@@ -396,10 +383,10 @@ def Find_Gear_Object():
                         is_duplicate = True
                         break
                 
-                if is_duplicate:
-                    continue 
+                if is_duplicate: continue 
                 
                 filtered_centers.append((cx, cy))
+                target_idx = len(filtered_centers)
 
                 final_box_x1 = int(cx - radius)
                 final_box_y1 = int(cy - radius)
@@ -408,10 +395,10 @@ def Find_Gear_Object():
                 
                 cv2.circle(output, (cx, cy), int(radius), (255, 105, 180), 2)
                 cv2.rectangle(output, (final_box_x1, final_box_y1), (final_box_x2, final_box_y2), (0, 255, 0), 2)
-                
                 cv2.line(output, (cx - 20, cy), (cx + 20, cy), (0, 0, 255), 2)
                 cv2.line(output, (cx, cy - 20), (cx, cy + 20), (0, 0, 255), 2)
                 cv2.circle(output, (cx, cy), 4, (0, 255, 255), -1)            
+                cv2.putText(output, f"#{target_idx}", (cx + 18, cy + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
                 
                 final_x = cy + o_point[1]
                 final_y = cx + o_point[0]
@@ -422,7 +409,6 @@ def Find_Gear_Object():
             
         cv2.arrowedLine(output, (30, 30), (150, 30), (0, 0, 255), 3, tipLength=0.1)
         cv2.putText(output, "X", (160, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-        
         cv2.arrowedLine(output, (30, 30), (30, 150), (0, 255, 0), 3, tipLength=0.1)
         cv2.putText(output, "Y", (35, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
@@ -430,29 +416,23 @@ def Find_Gear_Object():
         return output, real_points     
     return [], []
 
-TARGET_TEETH = 20
-TARGET_PICK_COUNT = 2
-
-def gripper_Behave(real_points, task_idx, target_pick_count=TARGET_PICK_COUNT):
-    picked_count = 0
+def scan_all_gears(real_points, task_idx):
+    """
+    階段一：巡迴所有候選座標，辨識並使用「FFT」記錄所有齒輪的齒數
+    """
+    scanned_gears = [] 
 
     for idx, pt in enumerate(real_points):
-        if picked_count >= target_pick_count:
-            break
-
         target_x = pt[0]
         target_y = pt[1]
         
-        print(f"⬇️ 準備下降鏡頭處理第 {idx+1} 個齒輪...")
-        
+        print(f"\n⬇️ 準備下降鏡頭掃描第 {idx+1}/{len(real_points)} 個齒輪...")
         send.Go_Position(c, target_x, target_y-33.935, z_height_check_number_of_teeth, home[3], home[4], -11.45, 80)
         time.sleep(1.5) 
         
         for _ in range(10):
-            try:
-                _ = realsense.Get_RGB_Frame()
-            except RuntimeError:
-                pass 
+            try: _ = realsense.Get_RGB_Frame()
+            except RuntimeError: pass 
         
         try:
             check_frame = realsense.Get_RGB_Frame()
@@ -461,61 +441,48 @@ def gripper_Behave(real_points, task_idx, target_pick_count=TARGET_PICK_COUNT):
             continue
         
         if check_frame is None or not isinstance(check_frame, np.ndarray):
-            print(f"⚠️ 錯誤：無法取得第 {idx+1} 個齒輪的畫面！跳過計算。")
             continue
             
         check_frame = cv2.cvtColor(check_frame, cv2.COLOR_RGB2BGR)
-        print("📸 拍攝近景完成，正在進行 FFT 與幾何分析...")
+        print("📸 拍攝完成，進行分析...")
         results = seg_model.predict(source=check_frame, conf=0.35, verbose=False)
+        teeth = 0
+        fft_teeth = 0 # 初始化 fft_teeth
         
         if len(results) > 0 and results[0].masks is not None:
             img_h, img_w = check_frame.shape[:2]
             img_cx, img_cy = img_w / 2, img_h / 2
             
-            # ========================================================
-            # ✨ 升級：鎖定中心點目標，拒絕旁邊亂入的齒輪
-            # ========================================================
-            boxes = results[0].boxes.xywh.cpu().numpy()  # [中心x, 中心y, 寬, 高]
-            masks = results[0].masks.data.cpu().numpy()  # N個遮罩的陣列
+            boxes = results[0].boxes.xywh.cpu().numpy()
+            masks = results[0].masks.data.cpu().numpy()
             
             best_idx = 0
             min_dist = float('inf')
             
-            # 遍歷畫面中被偵測到的每一個齒輪
             for i, box in enumerate(boxes):
                 cx, cy = box[0], box[1]
-                # 計算該齒輪中心與相機畫面中心的距離
                 dist = math.hypot(cx - img_cx, cy - img_cy)
                 if dist < min_dist:
                     min_dist = dist
                     best_idx = i
             
-            # 只抽出離畫面中心點「最近」的那個齒輪遮罩
             mask_data = masks[best_idx]
             mask_resized = cv2.resize(mask_data, (img_w, img_h), interpolation=cv2.INTER_NEAREST)
-            
-            # 取得畫有所有 YOLO 目標的畫面
             annotated_frame = results[0].plot()
             
-            # 畫出中心十字準心與鎖定紅線，讓操作員知道選對了
             cv2.circle(annotated_frame, (int(img_cx), int(img_cy)), 8, (255, 255, 255), -1)
-            cv2.putText(annotated_frame, "FOV Center", (int(img_cx)+15, int(img_cy)-15), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-            
             target_cx, target_cy = int(boxes[best_idx][0]), int(boxes[best_idx][1])
             cv2.line(annotated_frame, (int(img_cx), int(img_cy)), (target_cx, target_cy), (0, 0, 255), 4)
-            cv2.putText(annotated_frame, "LOCKED TARGET", (target_cx-50, target_cy-30), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
-            # ========================================================
-
-            # 將「唯一過濾出來的 Mask」丟進去算齒數
+            
             teeth, gear_center, gear_dia, first_tooth_pt, first_angle, valleys, clean_mask = count_teeth_from_mask(mask_resized, annotated_frame)
             
-            fft_teeth = 0
             fft_img = None
             unwrapped_img = None
             
             if gear_center is not None and gear_dia > 0:
                 max_radius = (gear_dia / 2) * 1.1 
                 unwrapped_mask = unwrap_gear(clean_mask, tuple(gear_center), max_radius)
+                # 執行 FFT 運算取得 fft_teeth
                 fft_img, fft_teeth = fourier_tooth_analysis(unwrapped_mask, w=960, h=700)
                 
                 unwrapped_img = unwrap_gear(check_frame, tuple(gear_center), max_radius)
@@ -523,118 +490,167 @@ def gripper_Behave(real_points, task_idx, target_pick_count=TARGET_PICK_COUNT):
                     mapped_x, mapped_y = map_to_unwrapped_coords(v, tuple(gear_center), max_radius)
                     if 0 <= mapped_x < unwrapped_img.shape[1] and 0 <= mapped_y < unwrapped_img.shape[0]:
                         cv2.line(unwrapped_img, (mapped_x, 0), (mapped_x, unwrapped_img.shape[0]), (0, 255, 0), 4)
-                        cv2.circle(unwrapped_img, (mapped_x, mapped_y), 10, (0, 0, 255), -1)
+
+            # 🎯 關鍵修改：記憶體存入的 'teeth' 直接使用 fft_teeth 的結果！
+            scanned_gears.append({
+                'pt': (target_x, target_y),
+                'teeth': fft_teeth,  
+                'idx': idx + 1
+            })
 
             overlay = annotated_frame.copy()
             cv2.rectangle(overlay, (20, 20), (1050, 400), (0, 0, 0), -1) 
             cv2.addWeighted(overlay, 0.6, annotated_frame, 0.4, 0, annotated_frame)
             cv2.putText(annotated_frame, f"Geometry Teeth: {teeth}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 255), 5)
             cv2.putText(annotated_frame, f"FFT Verification: {fft_teeth}", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 5)
-            cv2.putText(annotated_frame, f"1st Tooth Angle: {first_angle:.1f} deg", (50, 300), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 255), 5)
-
-            print(f"⚙️ 鎖定目標 -> 幾何齒數: {teeth} | FFT 齒數: {fft_teeth}")
-
-            if teeth != TARGET_TEETH:
-                print(f"⚠️ 齒數 {teeth} 不等於 {TARGET_TEETH}，跳過夾取")
-                continue
+            
+            print(f"⚙️ 第 {idx+1} 個目標掃描完畢 -> 判定齒數: FFT {fft_teeth} 齒 (幾何 {teeth} 齒)")
 
             dashboard = np.zeros((1000, 1600, 3), dtype=np.uint8)
-            
             if unwrapped_img is not None:
                 cv2.rectangle(dashboard, (0, 0), (1600, 40), (25, 25, 25), -1)
-                cv2.putText(dashboard, "1. UNWRAPPED GEAR SPATIAL VERIFICATION (Green lines hit valleys)", (15, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
                 uw_resized = cv2.resize(unwrapped_img, (1600, 260))
                 dashboard[40:300, 0:1600] = uw_resized
 
             if fft_img is not None:
                 dashboard[300:1000, 0:960] = fft_img
 
-            cv2.rectangle(dashboard, (960, 300), (1600, 340), (25, 25, 25), -1)
-            cv2.putText(dashboard, "3. GEOMETRY DETECTION", (975, 328), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-            
             annot_h, annot_w = annotated_frame.shape[:2]
             scale = min(640 / annot_w, 660 / annot_h)
             new_w, new_h = int(annot_w * scale), int(annot_h * scale)
             annot_resized = cv2.resize(annotated_frame, (new_w, new_h))
-            
             y_offset = 340 + (660 - new_h) // 2
             x_offset = 960 + (640 - new_w) // 2
             dashboard[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = annot_resized
             
-            cv2.line(dashboard, (0, 300), (1600, 300), (100, 100, 100), 2)
-            cv2.line(dashboard, (960, 300), (960, 1000), (100, 100, 100), 2)
-
-            # 套用智慧縮放視窗
-            window_name = f"Task {task_idx} - Dashboard: Gear {idx+1}"
+            window_name = f"Task {task_idx} - Scanning: Gear {idx+1}"
             show_smart_window(window_name, dashboard)
-            cv2.waitKey(3000) 
+            cv2.waitKey(1000) 
+            cv2.destroyWindow(window_name)
+        else:
+            print("⚠️ 未檢測到齒輪遮罩。")
+            
+    return scanned_gears
+
+def execute_pick(pt, drop_target):
+    """
+    實體夾取與放置動作
+    """
+    global picked_gear_total
+    target_x, target_y = pt[0], pt[1]
+    
+    send.Go_Position(c, target_x, target_y, z_height_check_number_of_teeth, home[3], home[4], -133.567, 80)
+    send.Go_Position(c, target_x, target_y, z_height, home[3], home[4], -133.567, 80)
+    send.gripper_ON(c)
+    send.Go_Position(c, target_x, target_y, home[2], home[3], home[4], -133.567, 80)
+    
+    send.Go_Position(c, drop_target[0], drop_target[1], drop_target[2],  drop_target[3], drop_target[4], drop_target[5], 80)
+    send.Go_Position(c, drop_target[0], drop_target[1], drop_target[2]-35,  drop_target[3], drop_target[4], drop_target[5], 80)
+    send.gripper_OFF(c)
+    send.Go_Position(c, drop_target[0], drop_target[1], drop_target[2],  -179.145, -0.321, -133.959, 80)
+    
+    picked_gear_total += 1
+
+def match_and_pick(scanned_gears):
+    """
+    階段二：終端機互動決策 (基於 FFT 的齒數結果)
+    """
+    gears_20 = [g for g in scanned_gears if g['teeth'] == 20]
+    gears_17 = [g for g in scanned_gears if g['teeth'] == 17]
+    gears_23 = [g for g in scanned_gears if g['teeth'] == 23]
+    
+    has_group_1 = len(gears_20) >= 2
+    has_group_2 = (len(gears_17) >= 1 and len(gears_23) >= 1)
+
+    print("\n" + "="*50)
+    print("🧠 掃描完畢！等待人類大腦下達最終指令...")
+    print(f"📊 畫面統計結果 (FFT): 20齒 ({len(gears_20)}個) | 17齒 ({len(gears_17)}個) | 23齒 ({len(gears_23)}個)")
+    print("="*50)
+
+    if not has_group_1 and not has_group_2:
+        print("⚠️ 警告：畫面上沒有符合的成對組合 (20+20 或 17+23)，放棄本回合。")
+        return False
+
+    print("\n請選擇要夾取的組合：")
+    if has_group_1:
+        print("[1] 第一組：20齒 + 20齒")
+    if has_group_2:
+        print("[2] 第二組：17齒 + 23齒")
+    print("[0] 放棄夾取，重新搜尋")
+
+    while True:
+        choice = input("\n👉 請輸入數字選擇 (0/1/2): ").strip()
+        
+        if choice == '1' and has_group_1:
+            print("🦾 確認指令！開始夾取【第一組：20齒 + 20齒】...")
+            execute_pick(gears_20[0]['pt'], drop)
+            execute_pick(gears_20[1]['pt'], drop_second)
+            return True
+            
+        elif choice == '2' and has_group_2:
+            print("🦾 確認指令！開始夾取【第二組：17齒 + 23齒】...")
+            execute_pick(gears_17[0]['pt'], drop)
+            execute_pick(gears_23[0]['pt'], drop_second)
+            return True
+            
+        elif choice == '0':
+            print("🛑 收到！放棄本次夾取，準備重新搜尋。")
+            return False
             
         else:
-            print("⚠️ 未檢測到齒輪遮罩，無法進行進階計算")
-
-        print(f"🦾 準備夾取第 {idx+1} 個目標...")
-        send.Go_Position(c, target_x, target_y, z_height_check_number_of_teeth, home[3], home[4], -133.567, 80)
-        send.Go_Position(c, target_x, target_y, z_height, home[3], home[4], -133.567, 80)
-        send.gripper_ON(c)
-        send.Go_Position(c, target_x, target_y, home[2], home[3], home[4], -133.567, 80)
-        send.Go_Position(c, drop[0], drop[1], drop[2],  drop[3], drop[4], drop[5], 80)
-        send.Go_Position(c, drop[0], drop[1], drop[2]-35,  drop[3], drop[4], drop[5], 80)
-        send.gripper_OFF(c)
-        send.Go_Position(c, drop[0], drop[1], drop[2],  -179.145, -0.321, -133.959, 80)
-        send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 80)
-
-        picked_count += 1
-
-    return picked_count
-
+            print("❌ 錯誤：輸入無效，或該組合目前數量不足，請重新輸入！")
+            
 def main(task_idx):
+    global picked_gear_total
+    if picked_gear_total >= 2:
+        return
+
     send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 80)
     send.gripper_OFF(c)
+    # 🌟 加入這兩行：給實體手臂 3 秒鐘的時間走到高空定位點並穩定
+    print("⏳ 等待機器手臂移動至高空定位點並穩定畫面...")
+    time.sleep(1.0) 
     
-    print("📷 正在等待相機啟動與清除緩衝區...")
+    print("\n📷 正在等待相機啟動與清除緩衝區...")
     success_frames = 0
     for i in range(50):
         try:
             frame = realsense.Get_RGB_Frame()
             success_frames += 1
-        except RuntimeError as e:
-            print(f"⚠️ 相機讀取超時 (暖機中...)，正在重試... ({i+1}/50)")
+        except RuntimeError:
             time.sleep(0.1) 
             
     if success_frames == 0:
-        print("❌ 錯誤：相機完全沒有畫面！請檢查 USB 連線並重新插拔相機。")
+        print("❌ 錯誤：相機完全沒有畫面！請檢查 USB 連線。")
         return 
     
-    picked_total = 0
-    output = None
-
-    print(f"🚀 開始執行任務 {task_idx}：搜尋高處目標...")
-    while picked_total < TARGET_PICK_COUNT:
-        real_points = []
-        while len(real_points) == 0:
-            output, real_points = Find_Gear_Object()
-            cv2.waitKey(1)
-
-        picked_now = gripper_Behave(real_points, task_idx, TARGET_PICK_COUNT - picked_total)
-        picked_total += picked_now
-
-        if picked_total < TARGET_PICK_COUNT:
-            print(f"🔁 已夾取 {picked_total} 個目標，繼續搜尋剩餘 {TARGET_PICK_COUNT - picked_total} 個...")
-        else:
-            break
-        
-    try:
-        cv2.destroyWindow("Step 1: High View Lock (Live)")
-    except Exception:
-        pass
+    real_points = []
     
-    # 輸出高處的最終結果並智慧調整大小
-    show_smart_window(f"Task {task_idx} - High View Final Result", output)
+    print(f"\n🚀 開始執行任務 {task_idx}：搜尋高處目標...")
+    while len(real_points) == 0:
+        output, real_points = Find_Gear_Object()
+        cv2.waitKey(1)
         
-    print(f"🎯 高處尋找完畢，共找到 {len(real_points)} 個目標座標！")
+    try: cv2.destroyWindow("Step 1: High View Lock (Live)")
+    except Exception: pass
+    
+    show_smart_window(f"Task {task_idx} - High View Final Result", output)
+    print(f"🎯 高處尋找完畢，共找到 {len(real_points)} 個目標座標！準備開始巡迴掃描...")
     cv2.waitKey(1000)
     
-    print(f"✅ 任務 {task_idx} 已成功夾取 {picked_total} 個目標齒輪!!!")
+    # 執行階段一：全部掃一遍
+    scanned_gears = scan_all_gears(real_points, task_idx)
+    
+    # 執行階段二：人類決策與手臂夾取
+    if len(scanned_gears) > 0:
+        # 手臂先退回安全高度等待使用者輸入，避免擋住視線或發生意外
+        send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 80)
+        
+        is_picked = match_and_pick(scanned_gears)
+        if is_picked:
+            print(f"✅ 任務 {task_idx} 成功完成一組配對！")
+            
+    send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 80)
 
 # =====================================================================
 # 🔧 常數與連線設定區
@@ -654,18 +670,25 @@ K = realsense.Get_Color_K()
 D = np.array([0.0,0.0,0.0,0.0,0.0,])
 
 print("🔌 正在連線至 Modbus 機器手臂...")
-c = ModbusTcpClient(host="192.168.1.1", port=502, unit_id=2)
+c = ModbusTcpClient(host="192.168.1.2", port=502, unit_id=2)
 c.connect()
 print("🟢 手臂連線成功！")
 
 gripper_rz = -133.567
 home = [386.077, -51.439, 680,  -179.161, -0.32, -102.22800000000001]
 drop = [474.953, -228.878, z_height+50, -178.932, 0.478, -134.746]
+picked_gear_total = 0
+drop_second = [drop[0] + 54, drop[1], drop[2], drop[3], drop[4], drop[5]]
 
 if __name__ == "__main__":
     try:
         for i in range(3): 
             main(task_idx=i+1) 
+            if picked_gear_total >= 2:
+                break
+
+        if picked_gear_total >= 2:
+            raise SystemExit
             
         print("\n" + "="*50)
         print("🏁 所有任務已順利完成！")

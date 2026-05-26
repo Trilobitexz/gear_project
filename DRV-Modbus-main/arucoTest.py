@@ -565,8 +565,8 @@ def gripper_Behave(real_points, task_idx):
         send.Go_Position(c, target_x, target_y, z_height, home[3], home[4], -133.567, 80)
         send.gripper_ON(c)
         send.Go_Position(c, target_x, target_y, home[2], home[3], home[4], -133.567, 80)
-        send.Go_Position(c, drop[0], drop[1], drop[2],  -179.145, -0.321, -133.959, 80)
-        send.Go_Position(c, drop[0], drop[1], drop[2]-35,  -179.145, -0.321, -133.959, 80)
+        send.Go_Position(c, drop[0], drop[1], drop[2],  drop[3], drop[4], drop[5], 80)
+        send.Go_Position(c, drop[0], drop[1], drop[2]-35,  drop[3], drop[4], drop[5], 80)
         send.gripper_OFF(c)
         send.Go_Position(c, drop[0], drop[1], drop[2],  -179.145, -0.321, -133.959, 80)
         send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 80)
@@ -634,7 +634,7 @@ print("🟢 手臂連線成功！")
 
 gripper_rz = -133.567
 home = [386.077, -51.439, 680,  -179.161, -0.32, -102.22800000000001]
-drop = [485.969, -227.49, z_height+50, -179.145, -0.321, -133.959]
+drop = [474.953, -228.878, z_height+50, -178.932, 0.478, -134.746]
 
 if __name__ == "__main__":
     try:

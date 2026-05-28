@@ -21,23 +21,41 @@ print("🎉 雙模型載入完成！")
 # =====================================================================
 
 # =====================================================================
-# 🖥️ 智慧視窗顯示引擎 (保證視窗不爆框)
+# 🖥️ 工業級智慧視窗顯示引擎 (HUD 優化版)
 # =====================================================================
-def show_smart_window(title, image, max_width=1400, max_height=800):
+def show_smart_window(title, image, max_width=1400, max_height=800, max_upscale=1.5):
+    """
+    附帶工業風 HUD 邊框與防過度放大機制的視窗顯示引擎
+    """
     if image is None or image.size == 0:
         return
         
     h, w = image.shape[:2]
     scale = min(max_width / w, max_height / h)
     
-    if scale < 1.0: 
-        new_w, new_h = int(w * scale), int(h * scale)
-        display_img = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
-    else:
-        display_img = image.copy()
+    # 防呆：避免小裁切圖被過度放大導致模糊
+    if scale > max_upscale:
+        scale = max_upscale
+        
+    new_w, new_h = int(w * scale), int(h * scale)
+    interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+    display_img = cv2.resize(image, (new_w, new_h), interpolation=interp)
+    
+    # --- 繪製 HUD 工業風邊框 ---
+    pad = 20
+    top_pad = 35
+    hud = np.zeros((new_h + pad + top_pad, new_w + pad * 2, 3), dtype=np.uint8)
+    hud[:] = (35, 35, 40) # 深灰色背景
+    hud[top_pad:top_pad+new_h, pad:pad+new_w] = display_img
+    
+    # 頂部狀態列
+    cv2.rectangle(hud, (0, 0), (new_w + pad * 2, top_pad - 5), (20, 20, 25), -1)
+    hud_text = f" SYSTEM LIVE HUD | Source: {w}x{h} | Render: {new_w}x{new_h} | Scale: {scale:.2f}x"
+    cv2.putText(hud, hud_text, (10, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+    cv2.line(hud, (0, top_pad - 5), (new_w + pad * 2, top_pad - 5), (100, 100, 100), 1)
         
     cv2.namedWindow(title, cv2.WINDOW_AUTOSIZE)
-    cv2.imshow(title, display_img)
+    cv2.imshow(title, hud)
 
 # =====================================================================
 # ⚙️ 影像處理、攤平與 FFT 頻譜分析輔助函數
@@ -178,19 +196,23 @@ def count_teeth_from_mask(mask_array: np.ndarray, annotated_img: np.ndarray):
     
     if len(c) >= 5:
         ellipse = cv2.fitEllipse(c)
-        center_x, center_y = int(ellipse[0][0]), int(ellipse[0][1])
+        # ✨ 關鍵修正：取消 int()，保留亞像素精度
+        center_x, center_y = ellipse[0][0], ellipse[0][1]
         gear_diameter = max(ellipse[1][0], ellipse[1][1]) 
     else:
         (x, y), radius = cv2.minEnclosingCircle(c)
-        center_x, center_y = int(x), int(y)
+        # ✨ 關鍵修正：取消 int()
+        center_x, center_y = x, y
         gear_diameter = radius * 2
         
     center = np.array([center_x, center_y])
     
+    # 畫圖時才轉整數
+    draw_cx, draw_cy = int(center_x), int(center_y)
     orange = (0, 165, 255)
-    cv2.line(annotated_img, (center_x - 30, center_y), (center_x + 30, center_y), orange, 3)
-    cv2.line(annotated_img, (center_x, center_y - 30), (center_x, center_y + 30), orange, 3)
-    cv2.circle(annotated_img, (center_x, center_y), 5, orange, -1) 
+    cv2.line(annotated_img, (draw_cx - 30, draw_cy), (draw_cx + 30, draw_cy), orange, 3)
+    cv2.line(annotated_img, (draw_cx, draw_cy - 30), (draw_cx, draw_cy + 30), orange, 3)
+    cv2.circle(annotated_img, (draw_cx, draw_cy), 5, orange, -1) 
     
     c_points = c.reshape(-1, 2)
     distances_to_center = np.linalg.norm(c_points - center, axis=1)
@@ -227,7 +249,8 @@ def count_teeth_from_mask(mask_array: np.ndarray, annotated_img: np.ndarray):
                     break
             if not found_close:
                 merged.append(p)
-        return [np.array(m, dtype=int) for m in merged]
+        # ✨ 關鍵修正：輸出浮點數座標而非 dtype=int，防止齒槽座標失真
+        return [np.array(m, dtype=float) for m in merged]
 
     merged_valleys = merge_points(raw_valleys, merge_dist_threshold)
 
@@ -240,10 +263,11 @@ def count_teeth_from_mask(mask_array: np.ndarray, annotated_img: np.ndarray):
             if abs(dist - median_radius) < radius_tolerance:
                 final_valleys.append(v)
             else:
-                cv2.circle(annotated_img, tuple(v), 8, (128, 128, 128), -1) 
+                cv2.circle(annotated_img, (int(v[0]), int(v[1])), 8, (128, 128, 128), -1) 
                 
     valleys_with_angles = []
     for v in final_valleys:
+        # ✨ 由於 center 與 v 皆為浮點數，此處 dx, dy 極度精確
         dx = v[0] - center_x
         dy = v[1] - center_y
         angle_rad = np.arctan2(-dy, dx)
@@ -251,8 +275,8 @@ def count_teeth_from_mask(mask_array: np.ndarray, annotated_img: np.ndarray):
         if angle_deg < 0:
             angle_deg += 360.0 
         valleys_with_angles.append((v, angle_deg))
-        cv2.line(annotated_img, (center_x, center_y), tuple(v), (255, 180, 0), 4) 
-        cv2.circle(annotated_img, tuple(v), 12, (0, 0, 255), -1)                  
+        cv2.line(annotated_img, (draw_cx, draw_cy), (int(v[0]), int(v[1])), (255, 180, 0), 4) 
+        cv2.circle(annotated_img, (int(v[0]), int(v[1])), 12, (0, 0, 255), -1)                  
 
     first_tooth_pt = None
     first_angle_deg = 0.0
@@ -260,11 +284,12 @@ def count_teeth_from_mask(mask_array: np.ndarray, annotated_img: np.ndarray):
         valleys_with_angles.sort(key=lambda x: x[1]) 
         v_min = valleys_with_angles[0][0]  
         v_max = valleys_with_angles[-1][0] 
-        cv2.line(annotated_img, (center_x, center_y), tuple(v_min), (0, 255, 0), 10) 
-        cv2.line(annotated_img, (center_x, center_y), tuple(v_max), (0, 255, 0), 10) 
+        cv2.line(annotated_img, (draw_cx, draw_cy), (int(v_min[0]), int(v_min[1])), (0, 255, 0), 10) 
+        cv2.line(annotated_img, (draw_cx, draw_cy), (int(v_max[0]), int(v_max[1])), (0, 255, 0), 10) 
         
-        avg_x = int((v_min[0] + v_max[0]) / 2.0)
-        avg_y = int((v_min[1] + v_max[1]) / 2.0)
+        # ✨ 關鍵修正：取消 avg_x, avg_y 的 int() 強制轉換
+        avg_x = (v_min[0] + v_max[0]) / 2.0
+        avg_y = (v_min[1] + v_max[1]) / 2.0
         first_tooth_pt = (avg_x, avg_y)
         
         ft_dx = avg_x - center_x
@@ -274,8 +299,8 @@ def count_teeth_from_mask(mask_array: np.ndarray, annotated_img: np.ndarray):
         if first_angle_deg < 0:
             first_angle_deg += 360.0
             
-        cv2.line(annotated_img, (center_x, center_y), first_tooth_pt, (0, 255, 255), 10)
-        cv2.circle(annotated_img, first_tooth_pt, 16, (0, 255, 255), -1)
+        cv2.line(annotated_img, (draw_cx, draw_cy), (int(avg_x), int(avg_y)), (0, 255, 255), 10)
+        cv2.circle(annotated_img, (int(avg_x), int(avg_y)), 16, (0, 255, 255), -1)
 
     return len(final_valleys), center, gear_diameter, first_tooth_pt, first_angle_deg, final_valleys, mask_uint8
 
@@ -317,7 +342,8 @@ def Find_Gear_Object():
         
         output, m = Warp(frame, c_center_list, int(real_width), int(real_height))
         
-        results = detect_model(output, conf=0.45, verbose=False)
+        # 使用放寬條件的 0.25 確保穩定抓取
+        results = detect_model(output, conf=0.25, verbose=False)
         boxes = results[0].boxes
         
         real_points = []
@@ -359,22 +385,23 @@ def Find_Gear_Object():
                     
                     if perimeter == 0 or area < 100: continue
                     circularity = 4 * math.pi * (area / (perimeter * perimeter))
-                    if circularity < 0.5: continue 
+                    if circularity < 0.2: continue # 放寬圓形度避免被反光干擾
                     
                     M = cv2.moments(c)
                     if M["m00"] != 0:
-                        c_x = int(M["m10"] / M["m00"])
-                        c_y = int(M["m01"] / M["m00"])
+                        # 🌟 核心修正：移除 int()，保留浮點數獲得亞像素精度
+                        c_x = M["m10"] / M["m00"]
+                        c_y = M["m01"] / M["m00"]
                     else:
-                        c_x, c_y = int(approx_w/2), int(approx_h/2)
+                        c_x, c_y = approx_w / 2.0, approx_h / 2.0
                     
                     radius = math.sqrt(area / math.pi) * 1.05 
                     cx = x1_roi + c_x
                     cy = y1_roi + c_y
                 else:
-                    cx = int((x1 + x2) / 2)
-                    cy = int((y1 + y2) / 2)
-                    radius = min(approx_w, approx_h) / 2
+                    cx = (x1 + x2) / 2.0
+                    cy = (y1 + y2) / 2.0
+                    radius = min(approx_w, approx_h) / 2.0
 
                 is_duplicate = False
                 for (fcx, fcy) in filtered_centers:
@@ -393,19 +420,22 @@ def Find_Gear_Object():
                 final_box_x2 = int(cx + radius)
                 final_box_y2 = int(cy + radius)
                 
-                cv2.circle(output, (cx, cy), int(radius), (255, 105, 180), 2)
+                # 🌟 畫圖專用：只有在餵給 OpenCV 畫圖的時候，才轉成整數
+                draw_cx, draw_cy = int(cx), int(cy)
+                cv2.circle(output, (draw_cx, draw_cy), int(radius), (255, 105, 180), 2)
                 cv2.rectangle(output, (final_box_x1, final_box_y1), (final_box_x2, final_box_y2), (0, 255, 0), 2)
-                cv2.line(output, (cx - 20, cy), (cx + 20, cy), (0, 0, 255), 2)
-                cv2.line(output, (cx, cy - 20), (cx, cy + 20), (0, 0, 255), 2)
-                cv2.circle(output, (cx, cy), 4, (0, 255, 255), -1)            
-                cv2.putText(output, f"#{target_idx}", (cx + 18, cy + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+                cv2.line(output, (draw_cx - 20, draw_cy), (draw_cx + 20, draw_cy), (0, 0, 255), 2)
+                cv2.line(output, (draw_cx, draw_cy - 20), (draw_cx, draw_cy + 20), (0, 0, 255), 2)
+                cv2.circle(output, (draw_cx, draw_cy), 4, (0, 255, 255), -1)            
+                cv2.putText(output, f"#{target_idx}", (draw_cx + 18, draw_cy + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
                 
+                # 🌟 傳遞給機器手臂的真實世界座標：保留小數點，完美消除放置誤差！
                 final_x = cy + o_point[1]
                 final_y = cx + o_point[0]
                 real_points.append((final_x, final_y))
                 
                 text_coord = f"X:{final_x:.1f}, Y:{final_y:.1f}"
-                cv2.putText(output, text_coord, (cx + 15, cy - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                cv2.putText(output, text_coord, (draw_cx + 15, draw_cy - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
             
         cv2.arrowedLine(output, (30, 30), (150, 30), (0, 0, 255), 3, tipLength=0.1)
         cv2.putText(output, "X", (160, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
@@ -418,7 +448,7 @@ def Find_Gear_Object():
 
 def scan_all_gears(real_points, task_idx):
     """
-    階段一：巡迴所有候選座標，辨識並使用「FFT」記錄所有齒輪的齒數
+    階段一：巡迴所有候選座標，辨識並使用「FFT」記錄所有齒輪的齒數與基準角度
     """
     scanned_gears = [] 
 
@@ -427,7 +457,8 @@ def scan_all_gears(real_points, task_idx):
         target_y = pt[1]
         
         print(f"\n⬇️ 準備下降鏡頭掃描第 {idx+1}/{len(real_points)} 個齒輪...")
-        send.Go_Position(c, target_x, target_y-33.935, z_height_check_number_of_teeth, home[3], home[4], -11.45, 80)
+        # 🚀 掃描巡迴速度拉滿至 100
+        send.Go_Position(c, target_x, target_y-33.935, z_height_check_number_of_teeth, home[3], home[4], -11.45, 100)
         time.sleep(1.5) 
         
         for _ in range(10):
@@ -447,7 +478,8 @@ def scan_all_gears(real_points, task_idx):
         print("📸 拍攝完成，進行分析...")
         results = seg_model.predict(source=check_frame, conf=0.35, verbose=False)
         teeth = 0
-        fft_teeth = 0 # 初始化 fft_teeth
+        fft_teeth = 0 
+        first_angle = 0.0 
         
         if len(results) > 0 and results[0].masks is not None:
             img_h, img_w = check_frame.shape[:2]
@@ -482,7 +514,6 @@ def scan_all_gears(real_points, task_idx):
             if gear_center is not None and gear_dia > 0:
                 max_radius = (gear_dia / 2) * 1.1 
                 unwrapped_mask = unwrap_gear(clean_mask, tuple(gear_center), max_radius)
-                # 執行 FFT 運算取得 fft_teeth
                 fft_img, fft_teeth = fourier_tooth_analysis(unwrapped_mask, w=960, h=700)
                 
                 unwrapped_img = unwrap_gear(check_frame, tuple(gear_center), max_radius)
@@ -491,11 +522,12 @@ def scan_all_gears(real_points, task_idx):
                     if 0 <= mapped_x < unwrapped_img.shape[1] and 0 <= mapped_y < unwrapped_img.shape[0]:
                         cv2.line(unwrapped_img, (mapped_x, 0), (mapped_x, unwrapped_img.shape[0]), (0, 255, 0), 4)
 
-            # 🎯 關鍵修改：記憶體存入的 'teeth' 直接使用 fft_teeth 的結果！
+            # 🎯 記憶體紀錄基準角度 angle
             scanned_gears.append({
                 'pt': (target_x, target_y),
                 'teeth': fft_teeth,  
-                'idx': idx + 1
+                'idx': idx + 1,
+                'angle': first_angle
             })
 
             overlay = annotated_frame.copy()
@@ -504,7 +536,7 @@ def scan_all_gears(real_points, task_idx):
             cv2.putText(annotated_frame, f"Geometry Teeth: {teeth}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 255), 5)
             cv2.putText(annotated_frame, f"FFT Verification: {fft_teeth}", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 255, 0), 5)
             
-            print(f"⚙️ 第 {idx+1} 個目標掃描完畢 -> 判定齒數: FFT {fft_teeth} 齒 (幾何 {teeth} 齒)")
+            print(f"⚙️ 第 {idx+1} 個目標掃描完畢 -> 齒數: {fft_teeth} 齒 | 齒縫基準角: {first_angle:.1f}°")
 
             dashboard = np.zeros((1000, 1600, 3), dtype=np.uint8)
             if unwrapped_img is not None:
@@ -532,22 +564,71 @@ def scan_all_gears(real_points, task_idx):
             
     return scanned_gears
 
-def execute_pick(pt, drop_target):
+def execute_pick(gear, drop_target, is_second_gear=False, ref_angle=0.0):
     """
-    實體夾取與放置動作
+    實體夾取與放置動作 (加入旋轉對稱性：消除 TCP 旋轉 XY 放大誤差)
     """
     global picked_gear_total
-    target_x, target_y = pt[0], pt[1]
+    target_x, target_y = gear['pt']
+    teeth = gear['teeth']
     
-    send.Go_Position(c, target_x, target_y, z_height_check_number_of_teeth, home[3], home[4], -133.567, 80)
+    # 取得本顆齒輪在桌上的原始基準角
+    orig_a = gear['angle']
+    a = orig_a
+    
+    # 🌟 【終極動態嚙合演算法：旋轉對稱微調版】 🌟
+    if is_second_gear and teeth > 0:
+        pitch = 360.0 / teeth
+        # 理論同步角度
+        sync_angle = (2.0 * ref_angle) - orig_a
+        
+        # 加入奇偶數補償
+        if teeth % 2 == 0:
+            target_a = sync_angle + (pitch / 2.0)
+        else:
+            target_a = sync_angle
+            
+        # ⭐️ 核心突破：利用齒輪旋轉對稱性，找出離 orig_a 最近的等效角度！
+        # 這樣手臂最多只會微調 ±(半個齒距)，徹底消除 TCP 旋轉造成的 XY 座標偏移
+        diff = target_a - orig_a
+        k = round(diff / pitch)  # 計算相差了幾個完整齒距
+        a = target_a - (k * pitch) # 扣除多餘的完整齒距
+        
+        print(f"🔄 動態計算：第一顆 {ref_angle:.1f}°，本顆原始 {orig_a:.1f}°")
+        print(f"🎯 對稱微調：理論目標 {target_a%360.0:.1f}° -> 最終執行 {a:.1f}°")
+        print(f"📏 手臂實際旋轉微調量僅為: {a - orig_a:.1f}° (確保 X, Y 座標零誤差！)")
+    else:
+        if not is_second_gear:
+            print(f"🎯 第一顆齒輪：依原始基準角 {a:.1f}° 建立世界坐標基準")
+
+    # --- 執行 TCP 偏心補償公式 ---
+    d = 66.083
+    a_rad = math.radians(a)  
+    
+    place_x = drop_target[0] + d * math.sin(a_rad)
+    place_y = drop_target[1] - d + d * math.cos(a_rad)
+    place_z = drop_target[2]
+    place_rx = drop_target[3]
+    place_ry = drop_target[4]
+    place_rz = drop_target[5] + a
+        
+    print(f"🦾 執行夾取 -> 目標 X:{target_x:.1f}, Y:{target_y:.1f}")
+    print(f"🎯 偏心放置補償 -> X:{place_x:.1f}, Y:{place_y:.1f}, Rz:{place_rz:.1f}")
+    
+    # === 執行手臂動作 ===
+    send.Go_Position(c, target_x, target_y, z_height_check_number_of_teeth, home[3], home[4], -133.567, 100)
     send.Go_Position(c, target_x, target_y, z_height, home[3], home[4], -133.567, 80)
     send.gripper_ON(c)
-    send.Go_Position(c, target_x, target_y, home[2], home[3], home[4], -133.567, 80)
     
-    send.Go_Position(c, drop_target[0], drop_target[1], drop_target[2],  drop_target[3], drop_target[4], drop_target[5], 80)
-    send.Go_Position(c, drop_target[0], drop_target[1], drop_target[2]-35,  drop_target[3], drop_target[4], drop_target[5], 80)
+    send.Go_Position(c, target_x, target_y, home[2], home[3], home[4], -133.567, 100)
+    
+    send.Go_Position(c, place_x, place_y, place_z, place_rx, place_ry, place_rz, 100)
+    
+    # 💡 柔性下壓：放慢速度 (30) 順勢滑入
+    send.Go_Position(c, place_x, place_y, place_z - 20, place_rx, place_ry, place_rz, 30)
     send.gripper_OFF(c)
-    send.Go_Position(c, drop_target[0], drop_target[1], drop_target[2],  -179.145, -0.321, -133.959, 80)
+    
+    send.Go_Position(c, place_x, place_y, place_z, place_rx, place_ry, place_rz, 100)
     
     picked_gear_total += 1
 
@@ -583,14 +664,16 @@ def match_and_pick(scanned_gears):
         
         if choice == '1' and has_group_1:
             print("🦾 確認指令！開始夾取【第一組：20齒 + 20齒】...")
-            execute_pick(gears_20[0]['pt'], drop)
-            execute_pick(gears_20[1]['pt'], drop_second)
+            execute_pick(gears_20[0], drop, is_second_gear=False)
+            # 🌟 傳遞第一顆的角度當作 reference
+            execute_pick(gears_20[1], drop_second, is_second_gear=True, ref_angle=gears_20[0]['angle'])
             return True
             
         elif choice == '2' and has_group_2:
             print("🦾 確認指令！開始夾取【第二組：17齒 + 23齒】...")
-            execute_pick(gears_17[0]['pt'], drop)
-            execute_pick(gears_23[0]['pt'], drop_second)
+            execute_pick(gears_17[0], drop, is_second_gear=False)
+            # 🌟 傳遞第一顆的角度當作 reference
+            execute_pick(gears_23[0], drop_second, is_second_gear=True, ref_angle=gears_17[0]['angle'])
             return True
             
         elif choice == '0':
@@ -599,15 +682,16 @@ def match_and_pick(scanned_gears):
             
         else:
             print("❌ 錯誤：輸入無效，或該組合目前數量不足，請重新輸入！")
-            
+
+
 def main(task_idx):
     global picked_gear_total
     if picked_gear_total >= 2:
         return
 
-    send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 80)
+    # 🚀 回 Home 點速度設為 100
+    send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 100)
     send.gripper_OFF(c)
-    # 🌟 加入這兩行：給實體手臂 3 秒鐘的時間走到高空定位點並穩定
     print("⏳ 等待機器手臂移動至高空定位點並穩定畫面...")
     time.sleep(1.0) 
     
@@ -638,19 +722,18 @@ def main(task_idx):
     print(f"🎯 高處尋找完畢，共找到 {len(real_points)} 個目標座標！準備開始巡迴掃描...")
     cv2.waitKey(1000)
     
-    # 執行階段一：全部掃一遍
     scanned_gears = scan_all_gears(real_points, task_idx)
     
-    # 執行階段二：人類決策與手臂夾取
     if len(scanned_gears) > 0:
-        # 手臂先退回安全高度等待使用者輸入，避免擋住視線或發生意外
-        send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 80)
+        # 🚀 掃描完回 Home 點準備夾取，速度設為 100
+        send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 100)
         
         is_picked = match_and_pick(scanned_gears)
         if is_picked:
             print(f"✅ 任務 {task_idx} 成功完成一組配對！")
             
-    send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 80)
+    # 🚀 任務結束回 Home 點，速度設為 100
+    send.Go_Position(c, home[0], home[1], home[2], home[3], home[4], home[5], 100)
 
 # =====================================================================
 # 🔧 常數與連線設定區
@@ -658,8 +741,8 @@ def main(task_idx):
 aruco_5x5_100_id = aruco.Aruco(aruco.ARUCO_DICT().DICT_5X5_100, 1, 200)
 aruco_length = 0.0525
 
-o_point = (-216.897,376.422)
-e_point = (75.044, 616.16)
+o_point = (-217.909,370.272)
+e_point = (73.858, 614.139)
 z_height = 412
 z_height_check_number_of_teeth = z_height + 25
 
@@ -670,15 +753,15 @@ K = realsense.Get_Color_K()
 D = np.array([0.0,0.0,0.0,0.0,0.0,])
 
 print("🔌 正在連線至 Modbus 機器手臂...")
-c = ModbusTcpClient(host="192.168.1.2", port=502, unit_id=2)
+c = ModbusTcpClient(host="192.168.1.1", port=502, unit_id=2)
 c.connect()
 print("🟢 手臂連線成功！")
 
 gripper_rz = -133.567
 home = [386.077, -51.439, 680,  -179.161, -0.32, -102.22800000000001]
-drop = [474.953, -228.878, z_height+50, -178.932, 0.478, -134.746]
+drop = [481.691, -227.737, z_height+30, -178.932, 0.478, -133.606]
 picked_gear_total = 0
-drop_second = [drop[0] + 54, drop[1], drop[2], drop[3], drop[4], drop[5]]
+drop_second = [531.515, -227.457, drop[2]+20, -178.882, -0.054, -133.607]
 
 if __name__ == "__main__":
     try:
